@@ -1,7 +1,7 @@
 # Exemple : Invoke-Pester .\tests\Unit\Services\UserActivityService.Tests.ps1
 
 # Importer le module à tester
-Import-Module "C:\Users\CorentinPereira\OneDrive - Ariovis\Personel\Entra-ID-Inactive-User-Cleanup-Automation\src\Services\UserActivityService.psm1" -Force
+ Import-Module "$PSScriptRoot\..\..\..\src\Services\UserActivityService.psm1" -Force
 
 Describe "Merge-UserActivityData" {
 
