@@ -1,4 +1,4 @@
-# identity-Lifecycle-Cleanup
+# Identity Lifecycle Cleanup
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue?logo=powershell)
 ![Entra ID](https://img.shields.io/badge/Entra_ID-Supported-0078D4?logo=microsoft-azure)
