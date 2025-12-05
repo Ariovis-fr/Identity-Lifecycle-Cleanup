@@ -105,10 +105,20 @@ if (-not $SkipAD -and $config.AD_SERVER) {
     try {
         $adCred = Get-ADCredentialFromConfig -Username $config.AD_USERNAME -Password $config.AD_PASSWORD
 
-        $adUsers = Get-InactiveADUsers `
-            -InactiveDays $inactiveDaysThreshold `
-            -Server $config.AD_SERVER `
-            -Credential $adCred
+        # Prepare parameters for Get-InactiveADUsers
+        $adParams = @{
+            InactiveDays = $inactiveDaysThreshold
+            Server       = $config.AD_SERVER
+            Credential   = $adCred
+        }
+
+        # Add SearchBase if configured (to target specific OU like People)
+        if ($config.AD_SEARCHBASE) {
+            $adParams['SearchBase'] = $config.AD_SEARCHBASE
+            Write-Host "  Searching in OU: $($config.AD_SEARCHBASE)" -ForegroundColor Gray
+        }
+
+        $adUsers = Get-InactiveADUsers @adParams
 
         Write-Host "  [OK] $($adUsers.Count) inactive users found" -ForegroundColor Green
 

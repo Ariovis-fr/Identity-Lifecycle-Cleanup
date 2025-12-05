@@ -19,8 +19,15 @@ function Get-InactiveADUsers {
     .PARAMETER Credential
     Credentials for AD connection
 
+    .PARAMETER SearchBase
+    OU Distinguished Name to search in (e.g., "OU=People,DC=SD,DC=DIKA,DC=BE")
+    If not specified, searches entire domain
+
     .EXAMPLE
     $users = Get-InactiveADUsers -InactiveDays 90 -Server "dc.example.com" -Credential $cred
+
+    .EXAMPLE
+    $users = Get-InactiveADUsers -InactiveDays 90 -Server "dc.example.com" -Credential $cred -SearchBase "OU=People,DC=SD,DC=DIKA,DC=BE"
     #>
 
     [CmdletBinding()]
@@ -31,7 +38,9 @@ function Get-InactiveADUsers {
         [string]$Server,
 
         [Parameter(Mandatory)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+
+        [string]$SearchBase
     )
 
     try {
@@ -40,8 +49,21 @@ function Get-InactiveADUsers {
         # Build the filter
         $filter = { Enabled -eq $true }
 
+        # Prepare Get-ADUser parameters
+        $adParams = @{
+            Filter     = $filter
+            Server     = $Server
+            Credential = $Credential
+            Properties = @('LastLogon', 'LastLogonDate', 'mail', 'Manager', 'Enabled', 'WhenCreated')
+        }
+
+        # Add SearchBase if specified (to target specific OU like People)
+        if ($SearchBase) {
+            $adParams['SearchBase'] = $SearchBase
+        }
+
         # Retrieve all users with necessary properties
-        $allUsers = Get-ADUser -Filter $filter -Server $Server -Credential $Credential -Properties LastLogon, LastLogonDate, mail, Manager, Enabled, WhenCreated
+        $allUsers = Get-ADUser @adParams
 
         # Calculate cutoff date in UTC
         $cutoffDate = (Get-Date).ToUniversalTime().AddDays(-$InactiveDays)
