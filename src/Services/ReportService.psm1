@@ -69,14 +69,14 @@ INACTIVE USERS - DUAL SYSTEM
 Active Directory AND Entra ID
 ========================================
 
-Generated on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+Generated on: $((Get-Date).ToUniversalTime().ToString("dd/MM/yyyy HH:mm:ss")) UTC
 Total count: $($Users.Count) user(s)
 
 "@
 
     foreach ($user in ($Users | Sort-Object DaysSinceActivity -Descending)) {
         $dateStr = if ($user.LastActivityDate) {
-            $user.LastActivityDate.ToString("yyyy-MM-dd HH:mm:ss")
+            "$($user.LastActivityDate.ToString("dd/MM/yyyy HH:mm:ss")) UTC"
         } else {
             "Never logged in"
         }
@@ -99,8 +99,8 @@ Last activity    : $dateStr (source: $($user.LastActivitySource))
 Days inactive    : $daysSince
 
 Details:
-  - AD Last Logon        : $(if ($user.ADLastLogon) { $user.ADLastLogon.ToString("yyyy-MM-dd HH:mm:ss") } else { "N/A" })
-  - Entra ID Last SignIn : $(if ($user.EntraLastSignIn) { $user.EntraLastSignIn.ToString("yyyy-MM-dd HH:mm:ss") } else { "N/A" })
+  - AD Last Logon        : $(if ($user.ADLastLogon) { "$($user.ADLastLogon.ToString("dd/MM/yyyy HH:mm:ss")) UTC" } else { "Never logged in via Active Directory" })
+  - Entra ID Last SignIn : $(if ($user.EntraLastSignIn) { "$($user.EntraLastSignIn.ToString("dd/MM/yyyy HH:mm:ss")) UTC" } else { "Never logged in via Entra ID" })
   - Manager              : $(if ($user.Manager) { $user.Manager } else { "N/A" })
 
 "@

@@ -43,8 +43,8 @@ function Get-InactiveADUsers {
         # Retrieve all users with necessary properties
         $allUsers = Get-ADUser -Filter $filter -Server $Server -Credential $Credential -Properties LastLogon, LastLogonDate, mail, Manager, Enabled, WhenCreated
 
-        # Calculate cutoff date
-        $cutoffDate = (Get-Date).AddDays(-$InactiveDays)
+        # Calculate cutoff date in UTC
+        $cutoffDate = (Get-Date).ToUniversalTime().AddDays(-$InactiveDays)
 
         # Filter inactive users
         $inactiveUsers = $allUsers | Where-Object {
@@ -66,7 +66,7 @@ function Get-InactiveADUsers {
         $results = $inactiveUsers | ForEach-Object {
             $lastLogonDate = Get-ADUserLastLogonDate -User $_
             $daysSinceLogon = if ($lastLogonDate) {
-                (New-TimeSpan -Start $lastLogonDate -End (Get-Date)).Days
+                (New-TimeSpan -Start $lastLogonDate -End (Get-Date).ToUniversalTime()).Days
             } else {
                 $null
             }
@@ -94,10 +94,11 @@ function Get-InactiveADUsers {
 function Get-ADUserLastLogonDate {
     <#
     .SYNOPSIS
-    Calculates AD user's last logon date
+    Calculates AD user's last logon date in UTC
 
     .DESCRIPTION
     Uses LastLogonDate if available, otherwise converts LastLogon from FileTime
+    ALWAYS returns dates in UTC timezone for consistency
 
     .PARAMETER User
     AD user object
@@ -114,7 +115,8 @@ function Get-ADUserLastLogonDate {
 
     # LastLogonDate is more reliable (replicated)
     if ($User.LastLogonDate) {
-        return $User.LastLogonDate
+        # Convert to UTC if it's a local datetime
+        return $User.LastLogonDate.ToUniversalTime()
     }
 
     return $null

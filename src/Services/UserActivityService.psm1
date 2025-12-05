@@ -151,9 +151,9 @@ function Merge-UserActivityData {
         Write-Verbose "  → Selected: Entra only (AD is null)"
     }
 
-    # Calculate days since activity
+    # Calculate days since activity (using UTC for consistency)
     $daysSinceActivity = if ($lastActivityDate) {
-        (New-TimeSpan -Start $lastActivityDate -End (Get-Date)).Days
+        (New-TimeSpan -Start $lastActivityDate -End (Get-Date).ToUniversalTime()).Days
     } else {
         $null
     }

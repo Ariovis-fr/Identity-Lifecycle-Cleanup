@@ -41,8 +41,8 @@ function Get-InactiveEntraIdUsers {
 
         Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $credential -NoWelcome
 
-        # Calculate cutoff date
-        $cutoffDate = (Get-Date).AddDays(-$InactiveDays)
+        # Calculate cutoff date in UTC
+        $cutoffDate = (Get-Date).ToUniversalTime().AddDays(-$InactiveDays)
 
         # Retrieve all users with sign-in activity
         $allUsers = Get-MgUser -All -Property DisplayName, UserPrincipalName, SignInActivity, AccountEnabled, CreatedDateTime, Mail
@@ -67,7 +67,7 @@ function Get-InactiveEntraIdUsers {
         $results = $inactiveUsers | ForEach-Object {
             $lastSignIn = Get-EntraUserLastSignInDate -User $_
             $daysSinceSignIn = if ($lastSignIn) {
-                (New-TimeSpan -Start $lastSignIn -End (Get-Date)).Days
+                (New-TimeSpan -Start $lastSignIn -End (Get-Date).ToUniversalTime()).Days
             } else {
                 $null
             }
@@ -98,10 +98,11 @@ function Get-InactiveEntraIdUsers {
 function Get-EntraUserLastSignInDate {
     <#
     .SYNOPSIS
-    Extracts Entra ID user's last sign-in date
+    Extracts Entra ID user's last sign-in date in UTC
 
     .DESCRIPTION
     Handles different possible formats of SignInActivity
+    Microsoft Graph returns dates in UTC by default, but we ensure it
 
     .PARAMETER User
     Entra ID user object
@@ -120,17 +121,23 @@ function Get-EntraUserLastSignInDate {
         return $null
     }
 
+    $dateToReturn = $null
+
     # LastSignInDateTime is the most recent
     if ($User.SignInActivity.LastSignInDateTime) {
-        return $User.SignInActivity.LastSignInDateTime
+        $dateToReturn = $User.SignInActivity.LastSignInDateTime
     }
-
     # Fallback to LastNonInteractiveSignInDateTime
-    if ($User.SignInActivity.LastNonInteractiveSignInDateTime) {
-        return $User.SignInActivity.LastNonInteractiveSignInDateTime
+    elseif ($User.SignInActivity.LastNonInteractiveSignInDateTime) {
+        $dateToReturn = $User.SignInActivity.LastNonInteractiveSignInDateTime
     }
 
-    return $null
+    # Ensure UTC (Microsoft Graph should already return UTC, but this is a safety check)
+    if ($dateToReturn -and $dateToReturn.Kind -ne [System.DateTimeKind]::Utc) {
+        $dateToReturn = $dateToReturn.ToUniversalTime()
+    }
+
+    return $dateToReturn
 }
 
 function Connect-EntraIdFromConfig {

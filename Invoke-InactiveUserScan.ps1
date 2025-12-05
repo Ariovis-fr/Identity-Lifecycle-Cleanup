@@ -140,7 +140,7 @@ if ($adUsers.Count -eq 0 -and $entraUsers.Count -eq 0) {
 }
 
 # Compare users present in both systems
-$matchedUsers = Compare-InactiveUsers -ADUsers $adUsers -EntraIdUsers $entraUsers
+$matchedUsers = Compare-InactiveUsers -ADUsers $adUsers -EntraIdUsers $entraUsers -Verbose:($VerbosePreference -eq 'Continue')
 
 Write-Host "  [OK] $($matchedUsers.Count) inactive users in BOTH systems" -ForegroundColor Green
 
