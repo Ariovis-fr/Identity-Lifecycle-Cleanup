@@ -1,4 +1,4 @@
-# Entra ID Inactive User Cleanup Automation
+# Identity Lifecycle Cleanup
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue?logo=powershell)
 ![Entra ID](https://img.shields.io/badge/Entra_ID-Supported-0078D4?logo=microsoft-azure)
@@ -110,4 +110,5 @@ You are free to use, modify, and distribute this software under the terms of the
 ---
 
 **Maintained by**: Ariovis-fr  
+
 **Repository**: [EntraID Inactive User Cleanup Automation](https://github.com/Ariovis-fr/Entra-ID-Inactive-User-Cleanup-Automation)
