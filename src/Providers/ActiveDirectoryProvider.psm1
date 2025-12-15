@@ -20,14 +20,14 @@ function Get-InactiveADUsers {
     Credentials for AD connection
 
     .PARAMETER SearchBase
-    OU Distinguished Name to search in (e.g., "OU=People,DC=SD,DC=DIKA,DC=BE")
+    OU Distinguished Name to search in (e.g., "OU=People,DC=EX,DC=EXAMPLE,DC=EN")
     If not specified, searches entire domain
 
     .EXAMPLE
     $users = Get-InactiveADUsers -InactiveDays 90 -Server "dc.example.com" -Credential $cred
 
     .EXAMPLE
-    $users = Get-InactiveADUsers -InactiveDays 90 -Server "dc.example.com" -Credential $cred -SearchBase "OU=People,DC=SD,DC=DIKA,DC=BE"
+    $users = Get-InactiveADUsers -InactiveDays 90 -Server "dc.example.com" -Credential $cred -SearchBase "OU=People,DC=EX,DC=EXAMPLE,DC=EN"
     #>
 
     [CmdletBinding()]
