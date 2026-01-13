@@ -54,7 +54,7 @@ function Get-InactiveADUsers {
             Filter     = $filter
             Server     = $Server
             Credential = $Credential
-            Properties = @('LastLogon', 'LastLogonDate', 'mail', 'Manager', 'Enabled', 'WhenCreated')
+            Properties = @('LastLogon', 'mail', 'Manager', 'Enabled', 'WhenCreated')
         }
 
         # Add SearchBase if specified (to target specific OU like People)
@@ -70,25 +70,31 @@ function Get-InactiveADUsers {
 
         # Filter inactive users
         $inactiveUsers = $allUsers | Where-Object {
-            $lastLogonDate = Get-ADUserLastLogonDate -User $_
+            $lastLogon = Get-ADUserLastLogon -User $_
 
-            if ($lastLogonDate) {
-                $lastLogonDate -lt $cutoffDate
+            if ($lastLogon) {
+                # User has logged in before
+                # Compare LastLogon (UTC) with cutoffDate (UTC)
+                $lastLogon -lt $cutoffDate
             } else {
-                # Include never-logged users if created more than InactiveDays ago
+                # User never logged in
+                # Check if account was created more than InactiveDays ago
                 if ($_.WhenCreated) {
-                    $_.WhenCreated -lt $cutoffDate
+                    # Convert WhenCreated to UTC for comparison
+                    $whenCreatedUTC = $_.WhenCreated.ToUniversalTime()
+                    $whenCreatedUTC -lt $cutoffDate
                 } else {
-                    $false # Exclude users with neither last logon nor when created
+                    # No creation date - exclude this user (should not happen)
+                    $false
                 }
             }
         }
 
         # Map to standardized format
         $results = $inactiveUsers | ForEach-Object {
-            $lastLogonDate = Get-ADUserLastLogonDate -User $_
-            $daysSinceLogon = if ($lastLogonDate) {
-                (New-TimeSpan -Start $lastLogonDate -End (Get-Date).ToUniversalTime()).Days
+            $lastLogon = Get-ADUserLastLogon -User $_
+            $daysSinceLogon = if ($lastLogon) {
+                (New-TimeSpan -Start $lastLogon -End (Get-Date).ToUniversalTime()).Days
             } else {
                 $null
             }
@@ -97,7 +103,7 @@ function Get-InactiveADUsers {
                 SamAccountName   = $_.SamAccountName
                 Name             = $_.Name
                 Enabled          = $_.Enabled
-                LastLogon        = $lastLogonDate
+                LastLogon        = $lastLogon
                 DaysSinceLogon   = $daysSinceLogon
                 Mail             = $_.mail
                 Manager          = $_.Manager
@@ -113,36 +119,44 @@ function Get-InactiveADUsers {
     }
 }
 
-function Get-ADUserLastLogonDate {
-    <#
-    .SYNOPSIS
-    Calculates AD user's last logon date in UTC
+function Get-ADUserLastLogon {
+      <#
+      .SYNOPSIS
+      Converts AD LastLogon (FileTime) to DateTime UTC
 
-    .DESCRIPTION
-    Uses LastLogonDate if available, otherwise converts LastLogon from FileTime
-    ALWAYS returns dates in UTC timezone for consistency
+      .DESCRIPTION
+      Returns null if LastLogon = 0 (never logged in)
+      Returns DateTime in UTC if LastLogon exists
 
-    .PARAMETER User
-    AD user object
+      .PARAMETER User
+      AD user object with LastLogon property
 
-    .EXAMPLE
-    $date = Get-ADUserLastLogonDate -User $adUser
-    #>
+      .EXAMPLE
+      $logon = Get-ADUserLastLogon -User $adUser
+      # Returns: DateTime in UTC or $null
+      #>
 
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [object]$User
-    )
+      [CmdletBinding()]
+      param(
+          [Parameter(Mandatory)]
+          [object]$User
+      )
+     
+      # LastLogon = 0 means "never logged in"
+      if (-not $User.LastLogon -or $User.LastLogon -eq 0) {
+          return $null
+      }
 
-    # LastLogonDate is more reliable (replicated)
-    if ($User.LastLogonDate) {
-        # Convert to UTC if it's a local datetime
-        return $User.LastLogonDate.ToUniversalTime()
-    }
+      # Convert FileTime (Int64) to DateTime UTC
+      try {
+          return [DateTime]::FromFileTime($User.LastLogon)
+      }
+      catch {
+          Write-Warning "Failed to convert LastLogon for $($User.SamAccountName): $_"
+          return $null
+      }
+  }
 
-    return $null
-}
 
 function Get-ADCredentialFromConfig {
     <#
@@ -172,4 +186,4 @@ function Get-ADCredentialFromConfig {
     return New-Object System.Management.Automation.PSCredential($Username, $securePassword)
 }
 
-Export-ModuleMember -Function Get-InactiveADUsers, Get-ADUserLastLogonDate, Get-ADCredentialFromConfig
+Export-ModuleMember -Function Get-InactiveADUsers, Get-ADUserLastLogon, Get-ADCredentialFromConfig
