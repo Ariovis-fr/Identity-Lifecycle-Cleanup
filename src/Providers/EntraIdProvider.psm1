@@ -53,11 +53,13 @@ function Get-InactiveEntraIdUsers {
 
             if ($lastSignIn) {
                 $lastSignIn -lt $cutoffDate
-            } else {
+            }
+            else {
                 # Include never-logged users if created more than InactiveDays ago
                 if ($_.CreatedDateTime) {
                     $_.CreatedDateTime -lt $cutoffDate
-                } else {
+                }
+                else {
                     $true
                 }
             }
@@ -68,18 +70,19 @@ function Get-InactiveEntraIdUsers {
             $lastSignIn = Get-EntraUserLastSignInDate -User $_
             $daysSinceSignIn = if ($lastSignIn) {
                 (New-TimeSpan -Start $lastSignIn -End (Get-Date).ToUniversalTime()).Days
-            } else {
+            }
+            else {
                 $null
             }
 
             [PSCustomObject]@{
-                DisplayName      = $_.DisplayName
+                DisplayName       = $_.DisplayName
                 UserPrincipalName = $_.UserPrincipalName
-                Mail             = $_.Mail
-                LastSignIn       = $lastSignIn
-                DaysSinceSignIn  = $daysSinceSignIn
-                AccountEnabled   = $_.AccountEnabled
-                CreatedDateTime  = $_.CreatedDateTime
+                Mail              = $_.Mail
+                LastSignIn        = $lastSignIn
+                DaysSinceSignIn   = $daysSinceSignIn
+                AccountEnabled    = $_.AccountEnabled
+                CreatedDateTime   = $_.CreatedDateTime
             }
         }
 
@@ -87,7 +90,8 @@ function Get-InactiveEntraIdUsers {
 
         return $results
 
-    } catch {
+    }
+    catch {
         # In case of error, write the error but return empty array
         # to allow the main script to handle the error
         Write-Error "Error retrieving Entra ID users: $_"
@@ -123,16 +127,20 @@ function Get-EntraUserLastSignInDate {
 
     $dateToReturn = $null
 
-    # LastSignInDateTime is the most recent
-    if ($User.SignInActivity.LastSignInDateTime) {
+    # Priority 1: LastSuccessfulSignInDateTime 
+    if ($User.SignInActivity.LastSuccessfulSignInDateTime) {
+        $dateToReturn = $User.SignInActivity.LastSuccessfulSignInDateTime
+    }
+    # Priority 2: LastSignInDateTime (interactive sign-in)
+    elseif ($User.SignInActivity.LastSignInDateTime) {
         $dateToReturn = $User.SignInActivity.LastSignInDateTime
     }
-    # Fallback to LastNonInteractiveSignInDateTime
+    # Priority 3: LastNonInteractiveSignInDateTime (service/app sign-in)
     elseif ($User.SignInActivity.LastNonInteractiveSignInDateTime) {
         $dateToReturn = $User.SignInActivity.LastNonInteractiveSignInDateTime
     }
-
-    # Ensure UTC (Microsoft Graph should already return UTC, but this is a safety check)
+ 
+    # Ensure UTC (Microsoft Graph returns UTC, but ensure consistency)
     if ($dateToReturn -and $dateToReturn.Kind -ne [System.DateTimeKind]::Utc) {
         $dateToReturn = $dateToReturn.ToUniversalTime()
     }
