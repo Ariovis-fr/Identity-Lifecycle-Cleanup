@@ -6,90 +6,218 @@
 function Compare-InactiveUsers {
     <#
     .SYNOPSIS
-    Compares inactive AD and Entra ID users
+    Identifies all truly inactive users across AD and Entra ID
 
     .DESCRIPTION
-    Identifies users present in BOTH systems as inactive
+    Cross-references inactive users from both systems with full identity lists
+    to determine who is truly inactive in the enterprise:
+    - Inactive in both systems → inactive
+    - Inactive in AD, does not exist in Entra → inactive
+    - Inactive in Entra, does not exist in AD → inactive
+    - Inactive in AD, but active in Entra → ACTIVE (excluded)
+    - Inactive in Entra, but active in AD → ACTIVE (excluded)
 
     .PARAMETER ADUsers
-    Collection of inactive AD users
+    Collection of inactive AD users (from Get-InactiveADUsers)
 
     .PARAMETER EntraIdUsers
-    Collection of inactive Entra ID users
+    Collection of inactive Entra ID users (from Get-InactiveEntraIdUsers)
+
+    .PARAMETER AllADIdentities
+    List of all AD SamAccountNames (lowercase). Used to check if an Entra-only
+    inactive user exists in AD. If not provided, all Entra-only users are included.
+
+    .PARAMETER AllEntraIdentities
+    List of all Entra UPN prefixes (lowercase). Used to check if an AD-only
+    inactive user exists in Entra. If not provided, all AD-only users are included.
 
     .PARAMETER MatchingStrategy
     Matching strategy: 'SamAccountName' (default), 'Mail', 'UPN'
-
-    .EXAMPLE
-    $matched = Compare-InactiveUsers -ADUsers $adUsers -EntraIdUsers $entraUsers
     #>
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
-        [object[]]$ADUsers,
+        [object[]]$ADUsers = @(),
 
-        [Parameter(Mandatory)]
-        [object[]]$EntraIdUsers,
+        [object[]]$EntraIdUsers = @(),
+
+        [string[]]$AllADIdentities,
+
+        [string[]]$AllEntraIdentities,
 
         [ValidateSet('SamAccountName', 'Mail', 'UPN')]
         [string]$MatchingStrategy = 'SamAccountName'
     )
 
-    # Create dictionaries for fast lookup
+    # Build lookup dictionaries for inactive users
     $entraDict = @{}
-
     foreach ($entraUser in $EntraIdUsers) {
-        $key = switch ($MatchingStrategy) {
-            'SamAccountName' {
-                # Extract part before @ from UPN
-                if ($entraUser.UserPrincipalName -match '^([^@]+)@') {
+        $key = Get-UserMatchKey -User $entraUser -Source "Entra" -Strategy $MatchingStrategy
+        if ($key) { $entraDict[$key] = $entraUser }
+    }
+
+    $adDict = @{}
+    foreach ($adUser in $ADUsers) {
+        $key = Get-UserMatchKey -User $adUser -Source "AD" -Strategy $MatchingStrategy
+        if ($key) { $adDict[$key] = $adUser }
+    }
+
+    # Build lookup sets for all identities (for existence checks)
+    $allEntraSet = @{}
+    if ($AllEntraIdentities) {
+        foreach ($id in $AllEntraIdentities) { $allEntraSet[$id] = $true }
+    }
+
+    $allADSet = @{}
+    if ($AllADIdentities) {
+        foreach ($id in $AllADIdentities) { $allADSet[$id] = $true }
+    }
+
+    $results = @()
+    $processedKeys = @{}
+
+    # --- Pass 1: AD inactive users ---
+    foreach ($adUser in $ADUsers) {
+        $key = Get-UserMatchKey -User $adUser -Source "AD" -Strategy $MatchingStrategy
+        if (-not $key) { continue }
+
+        $processedKeys[$key] = $true
+
+        if ($entraDict.ContainsKey($key)) {
+            # Inactive in both systems → truly inactive
+            $results += Merge-UserActivityData -ADUser $adUser -EntraUser $entraDict[$key]
+        }
+        elseif ($AllEntraIdentities -and $allEntraSet.ContainsKey($key)) {
+            # Exists in Entra but not in inactive list → active in Entra → skip
+            Write-Verbose "  $key : inactive in AD but active in Entra → skipped"
+        }
+        else {
+            # Does not exist in Entra (or no Entra identity list provided) → AD-only inactive
+            $results += New-SingleSourceActivity -User $adUser -Source "AD"
+        }
+    }
+
+    # --- Pass 2: Entra inactive users not yet processed ---
+    foreach ($entraUser in $EntraIdUsers) {
+        $key = Get-UserMatchKey -User $entraUser -Source "Entra" -Strategy $MatchingStrategy
+        if (-not $key -or $processedKeys.ContainsKey($key)) { continue }
+
+        if ($AllADIdentities -and $allADSet.ContainsKey($key)) {
+            # Exists in AD but not in inactive list → active in AD → skip
+            Write-Verbose "  $key : inactive in Entra but active in AD → skipped"
+        }
+        else {
+            # Does not exist in AD (or no AD identity list provided) → Entra-only inactive
+            $results += New-SingleSourceActivity -User $entraUser -Source "Entra"
+        }
+    }
+
+    return , $results
+}
+
+function Get-UserMatchKey {
+    <#
+    .SYNOPSIS
+    Extracts a matching key from a user object based on the strategy
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [object]$User,
+
+        [Parameter(Mandatory)]
+        [ValidateSet("AD", "Entra")]
+        [string]$Source,
+
+        [string]$Strategy = "SamAccountName"
+    )
+
+    switch ($Strategy) {
+        'SamAccountName' {
+            if ($Source -eq "AD") {
+                $User.SamAccountName.ToLower()
+            } else {
+                if ($User.UserPrincipalName -match '^([^@]+)@') {
                     $matches[1].ToLower()
                 } else {
-                    $entraUser.UserPrincipalName.ToLower()
+                    $User.UserPrincipalName.ToLower()
                 }
             }
-            'Mail' {
-                if ($entraUser.Mail) { $entraUser.Mail.ToLower() } else { $null }
-            }
-            'UPN' {
-                $entraUser.UserPrincipalName.ToLower()
-            }
         }
-
-        if ($key) {
-            $entraDict[$key] = $entraUser
+        'Mail' {
+            if ($User.Mail) { $User.Mail.ToLower() } else { $null }
         }
-    }
-
-    # Compare and match
-    $matchedUsers = @()
-
-    foreach ($adUser in $ADUsers) {
-        $key = switch ($MatchingStrategy) {
-            'SamAccountName' {
-                $adUser.SamAccountName.ToLower()
+        'UPN' {
+            if ($Source -eq "AD") {
+                $User.SamAccountName.ToLower()
+            } else {
+                $User.UserPrincipalName.ToLower()
             }
-            'Mail' {
-                if ($adUser.Mail) { $adUser.Mail.ToLower() } else { $null }
-            }
-            'UPN' {
-                # Build potential UPN from SamAccountName
-                $adUser.SamAccountName.ToLower()
-            }
-        }
-
-        if ($key -and $entraDict.ContainsKey($key)) {
-            $entraUser = $entraDict[$key]
-
-            # Create combined object with last activity
-            $mergedUser = Merge-UserActivityData -ADUser $adUser -EntraUser $entraUser
-
-            $matchedUsers += $mergedUser
         }
     }
+}
 
-    return $matchedUsers
+function New-SingleSourceActivity {
+    <#
+    .SYNOPSIS
+    Creates a standardized activity object for a user present in only one system
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [object]$User,
+
+        [Parameter(Mandatory)]
+        [ValidateSet("AD", "Entra")]
+        [string]$Source
+    )
+
+    if ($Source -eq "AD") {
+        $lastDate = $User.LastLogon
+        $daysSince = if ($lastDate) {
+            (New-TimeSpan -Start $lastDate -End (Get-Date).ToUniversalTime()).Days
+        } else { $null }
+
+        return [PSCustomObject]@{
+            SamAccountName     = $User.SamAccountName
+            Name               = $User.Name
+            UPN                = $null
+            Mail               = $User.Mail
+            Enabled            = $User.Enabled
+            LastActivityDate   = $lastDate
+            LastActivitySource = if ($lastDate) { "Active Directory" } else { "" }
+            ADLastLogon        = $lastDate
+            EntraLastSignIn    = $null
+            DaysSinceActivity  = $daysSince
+            ADCreatedDate      = $User.WhenCreated
+            EntraCreatedDate   = $null
+            Manager            = $User.Manager
+        }
+    }
+    else {
+        $lastDate = $User.LastSignIn
+        $daysSince = if ($lastDate) {
+            (New-TimeSpan -Start $lastDate -End (Get-Date).ToUniversalTime()).Days
+        } else { $null }
+
+        $sam = if ($User.UserPrincipalName -match '^([^@]+)@') {
+            $matches[1]
+        } else { $User.UserPrincipalName }
+
+        return [PSCustomObject]@{
+            SamAccountName     = $sam
+            Name               = $User.DisplayName
+            UPN                = $User.UserPrincipalName
+            Mail               = $User.Mail
+            Enabled            = $null
+            LastActivityDate   = $lastDate
+            LastActivitySource = if ($lastDate) { "Entra ID" } else { "" }
+            ADLastLogon        = $null
+            EntraLastSignIn    = $lastDate
+            DaysSinceActivity  = $daysSince
+            ADCreatedDate      = $null
+            EntraCreatedDate   = $User.CreatedDateTime
+            Manager            = $null
+        }
+    }
 }
 
 function Merge-UserActivityData {
@@ -180,4 +308,4 @@ function Merge-UserActivityData {
 }
 
 
-Export-ModuleMember -Function Compare-InactiveUsers, Merge-UserActivityData
+Export-ModuleMember -Function Compare-InactiveUsers, Merge-UserActivityData, New-SingleSourceActivity, Get-UserMatchKey

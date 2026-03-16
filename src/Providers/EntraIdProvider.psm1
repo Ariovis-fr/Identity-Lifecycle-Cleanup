@@ -184,4 +184,56 @@ function Connect-EntraIdFromConfig {
     Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $credential -NoWelcome
 }
 
-Export-ModuleMember -Function Get-InactiveEntraIdUsers, Get-EntraUserLastSignInDate, Connect-EntraIdFromConfig
+function Get-EntraIdUserIdentities {
+    <#
+    .SYNOPSIS
+    Returns a lightweight list of all Entra ID user identities (UPN only)
+
+    .DESCRIPTION
+    Used to check if an AD-only inactive user exists in Entra ID.
+    If the user exists here but is not in the inactive list, they are active.
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$TenantId,
+
+        [Parameter(Mandatory)]
+        [string]$ClientId,
+
+        [Parameter(Mandatory)]
+        [string]$ClientSecret
+    )
+
+    try {
+        if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
+            throw "Microsoft.Graph module not installed. Run: Install-Module Microsoft.Graph"
+        }
+
+        Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+
+        $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
+        $credential = New-Object System.Management.Automation.PSCredential($ClientId, $secureSecret)
+
+        Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $credential -NoWelcome
+
+        $allUsers = Get-MgUser -All -Property UserPrincipalName
+
+        $identities = $allUsers | ForEach-Object {
+            if ($_.UserPrincipalName -match '^([^@]+)@') {
+                $matches[1].ToLower()
+            }
+        }
+
+        Disconnect-MgGraph | Out-Null
+
+        return $identities
+
+    } catch {
+        Write-Error "Error retrieving Entra ID identities: $_"
+        return @()
+    }
+}
+
+Export-ModuleMember -Function Get-InactiveEntraIdUsers, Get-EntraUserLastSignInDate, Connect-EntraIdFromConfig, Get-EntraIdUserIdentities

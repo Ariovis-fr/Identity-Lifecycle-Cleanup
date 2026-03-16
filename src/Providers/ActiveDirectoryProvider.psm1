@@ -186,4 +186,52 @@ function Get-ADCredentialFromConfig {
     return New-Object System.Management.Automation.PSCredential($Username, $securePassword)
 }
 
-Export-ModuleMember -Function Get-InactiveADUsers, Get-ADUserLastLogon, Get-ADCredentialFromConfig
+function Get-ADUserIdentities {
+    <#
+    .SYNOPSIS
+    Returns a lightweight list of all AD user identities (SamAccountName only)
+
+    .DESCRIPTION
+    Used to check if an Entra-only inactive user exists in AD.
+    If the user exists here but is not in the inactive list, they are active.
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Server,
+
+        [Parameter(Mandatory)]
+        [PSCredential]$Credential,
+
+        [string]$SearchBase
+    )
+
+    try {
+        Import-Module ActiveDirectory -ErrorAction Stop
+
+        $adParams = @{
+            Filter     = { Enabled -eq $true }
+            Server     = $Server
+            Credential = $Credential
+            Properties = @()
+        }
+
+        if ($SearchBase) {
+            $adParams['SearchBase'] = $SearchBase
+        }
+
+        $allUsers = Get-ADUser @adParams
+
+        $identities = $allUsers | ForEach-Object {
+            $_.SamAccountName.ToLower()
+        }
+
+        return $identities
+
+    } catch {
+        throw "Error retrieving AD identities: $_"
+    }
+}
+
+Export-ModuleMember -Function Get-InactiveADUsers, Get-ADUserLastLogon, Get-ADCredentialFromConfig, Get-ADUserIdentities

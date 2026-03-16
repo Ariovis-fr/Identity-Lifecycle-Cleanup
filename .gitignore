@@ -16,4 +16,7 @@ logs/
 # Temporary files
 *.bak
 
+# Personal documentation
+doc/
+
 

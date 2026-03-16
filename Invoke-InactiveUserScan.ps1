@@ -149,13 +149,54 @@ if ($adUsers.Count -eq 0 -and $entraUsers.Count -eq 0) {
     exit 0
 }
 
-# Compare users present in both systems
-$matchedUsers = Compare-InactiveUsers -ADUsers $adUsers -EntraIdUsers $entraUsers -Verbose:($VerbosePreference -eq 'Continue')
+# Retrieve lightweight identity lists for cross-referencing
+$allEntraIdentities = $null
+$allADIdentities = $null
 
-Write-Host "  [OK] $($matchedUsers.Count) inactive users in BOTH systems" -ForegroundColor Green
+if (-not $SkipEntraId -and $config.TENANT_ID) {
+    try {
+        Write-Host "  Retrieving Entra ID identity list..." -ForegroundColor Gray
+        $allEntraIdentities = Get-EntraIdUserIdentities `
+            -TenantId $config.TENANT_ID `
+            -ClientId $config.CLIENT_ID `
+            -ClientSecret $config.CLIENT_SECRET
+        Write-Host "  [OK] $($allEntraIdentities.Count) Entra identities loaded" -ForegroundColor Green
+    } catch {
+        Write-Host "  [WARNING] Could not load Entra identities: $_" -ForegroundColor Yellow
+    }
+}
 
-if ($matchedUsers.Count -eq 0) {
-    Write-Host "  [INFO] No users inactive in both systems simultaneously" -ForegroundColor Cyan
+if (-not $SkipAD -and $config.AD_SERVER) {
+    try {
+        Write-Host "  Retrieving AD identity list..." -ForegroundColor Gray
+        $adCred = Get-ADCredentialFromConfig -Username $config.AD_USERNAME -Password $config.AD_PASSWORD
+        $adIdentityParams = @{
+            Server     = $config.AD_SERVER
+            Credential = $adCred
+        }
+        if ($config.AD_SEARCHBASE) { $adIdentityParams['SearchBase'] = $config.AD_SEARCHBASE }
+        $allADIdentities = Get-ADUserIdentities @adIdentityParams
+        Write-Host "  [OK] $($allADIdentities.Count) AD identities loaded" -ForegroundColor Green
+    } catch {
+        Write-Host "  [WARNING] Could not load AD identities: $_" -ForegroundColor Yellow
+    }
+}
+
+# Cross-reference inactive users with identity lists
+$compareParams = @{
+    Verbose = ($VerbosePreference -eq 'Continue')
+}
+if ($adUsers.Count -gt 0) { $compareParams['ADUsers'] = $adUsers }
+if ($entraUsers.Count -gt 0) { $compareParams['EntraIdUsers'] = $entraUsers }
+if ($allADIdentities) { $compareParams['AllADIdentities'] = $allADIdentities }
+if ($allEntraIdentities) { $compareParams['AllEntraIdentities'] = $allEntraIdentities }
+
+$inactiveUsers = Compare-InactiveUsers @compareParams
+
+Write-Host "  [OK] $($inactiveUsers.Count) truly inactive users identified" -ForegroundColor Green
+
+if ($inactiveUsers.Count -eq 0) {
+    Write-Host "  [INFO] No truly inactive users found" -ForegroundColor Cyan
     exit 0
 }
 
@@ -178,7 +219,7 @@ if (-not (Test-Path $outputDir)) {
 }
 
 # Extract users
-$usersToReport = $matchedUsers
+$usersToReport = $inactiveUsers
 
 # Generate report
 try {
@@ -203,7 +244,7 @@ Write-Host ""
 Write-Host "Summary:" -ForegroundColor Cyan
 Write-Host "  Inactive AD users      : $($adUsers.Count)" -ForegroundColor White
 Write-Host "  Inactive Entra users   : $($entraUsers.Count)" -ForegroundColor White
-Write-Host "  Matched (both systems) : $($matchedUsers.Count)" -ForegroundColor White
+Write-Host "  Truly inactive         : $($inactiveUsers.Count)" -ForegroundColor White
 Write-Host ""
 Write-Host ""
 Write-Host "Report: $reportPath" -ForegroundColor White
